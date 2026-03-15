@@ -127,9 +127,42 @@ app.put('/api/v1/clients/:id', (req, res) => {
 
   /* ---------- Update code below ----------*/
 
+  if (priority !== undefined) {
+    const { valid, messageObj } = validatePriority(priority);
+    if (!valid) {
+      return res.status(400).send(messageObj);
+    }
+  }
+  const newStatus = status || client.status;
+  const newPriority = priority || client.priority;
+  const targetLaneClients = clients
+    .filter(c => c.status === newStatus && c.id !== id)
+    .sort((a, b) => a.priority - b.priority);
+
+  // Insert moving client at the new priority position
+  targetLaneClients.splice(newPriority - 1, 0, { ...client, status: newStatus });
+
+  // Reassign priorities 1..N cleanly to avoid conflicts
+  targetLaneClients.forEach((c, index) => {
+    db.prepare('update clients set status = ?, priority = ? where id = ?')
+      .run(newStatus, index + 1, c.id);
+  });
+
+  if (status && status !== client.status) {
+    const sourceLaneClients = clients
+      .filter(c => c.status === client.status && c.id !== id)
+      .sort((a, b) => a.priority - b.priority);
+
+    sourceLaneClients.forEach((c, index) => {
+      db.prepare('update clients set priority = ? where id = ?')
+        .run(index + 1, c.id);
+    });
+  }
+
+  const updatedClients = db.prepare('select * from clients').all();
+  return res.status(200).send(updatedClients);
 
 
-  return res.status(200).send(clients);
 });
 
 app.listen(3001);
